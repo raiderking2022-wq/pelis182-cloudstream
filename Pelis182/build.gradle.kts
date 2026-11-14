@@ -6,3 +6,7 @@ cloudstream {
     tvTypes = listOf("Movie")
     requiresResources = false
 }
+
+dependencies {
+    add("implementation", "org.jspecify:jspecify:1.0.0")
+}
