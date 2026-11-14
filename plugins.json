@@ -1,7 +1,7 @@
 [
   {
     "apiVersion": 1,
-    "repositoryUrl": "https://github.com/raiderking2022-wq/pelis182-cloudstream",
+    "repositoryUrl": "https://github.com/raiderking2022-wq/teatro-latino",
     "fileSize": 18725,
     "status": 1,
     "language": "es",
@@ -14,7 +14,7 @@
     "version": 1,
     "internalName": "Pelis182",
     "description": "Pelis182 experimental. Series pendientes.",
-    "url": "https://raw.githubusercontent.com/raiderking2022-wq/pelis182-cloudstream/builds/Pelis182.cs3",
+    "url": "https://raw.githubusercontent.com/raiderking2022-wq/teatro-latino/builds/Pelis182.cs3",
     "name": "Pelis182"
   }
 ]

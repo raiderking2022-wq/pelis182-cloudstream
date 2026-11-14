@@ -1,8 +1,1 @@
-{
-  "name": "Pelis182",
-  "description": "Plugin experimental de Pelis182 para CloudStream.",
-  "manifestVersion": 1,
-  "pluginLists": [
-    "https://raw.githubusercontent.com/raiderking2022-wq/pelis182-cloudstream/builds/plugins.json"
-  ]
-}
+{"name": "Teatro Latino", "description": "Complemento experimental de CloudStream con extractor HLS.", "manifestVersion": 1, "pluginLists": ["https://raw.githubusercontent.com/raiderking2022-wq/teatro-latino/builds/plugins.json"]}
