@@ -111,23 +111,34 @@ class Paulinito : ExtractorApi() {
         val response = app.get(url, referer = referer ?: "https://pelis182.net/")
         if (response.code !in 200..299) throw ErrorLoadingException("Paulinito: HTTP ${response.code}")
         val text = response.text.replace("\\/", "/")
-        val files = linkedSetOf<String>()
-        val sources = Regex("""sources\s*:\s*(\[[\s\S]*?\])""").find(text)?.groupValues?.get(1)
-        if (sources != null) {
+        val files = linkedMapOf<String, String>()
+        Regex("""sources\s*:\s*(\[[\s\S]*?\])""").find(text)?.groupValues?.get(1)?.let { sources ->
             runCatching { mapper.readTree(sources) }.getOrNull()?.forEach { source ->
-                source.get("file")?.asText()?.let { files.add(it) }
+                val file = source.get("file")?.asText()?.takeIf { it.isNotBlank() } ?: return@forEach
+                files[file] = source.get("label")?.asText().orEmpty()
             }
         }
-        Regex("""https?://[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?""", RegexOption.IGNORE_CASE).findAll(text).forEach { files.add(it.value) }
+        Regex("""https?://[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?""", RegexOption.IGNORE_CASE).findAll(text).forEach { files.putIfAbsent(it.value, "") }
         if (files.isEmpty()) throw ErrorLoadingException("Paulinito: página recibida sin m3u8 ni mp4")
-        for (raw in files) {
+        // El CDN de video rechaza con 404 toda petición sin el Referer del reproductor:
+        // hay que enviarlo tanto al leer la lista maestra como al reproducir.
+        val headers = mapOf("User-Agent" to USER_AGENT, "Referer" to response.url)
+        for ((raw, label) in files) {
             val file = raw.replace("&amp;", "&")
             if (!file.startsWith("https://") && !file.startsWith("http://")) continue
             val hls = file.substringBefore('?').endsWith(".m3u8", true)
-            callback(newExtractorLink(name, name, file, if (hls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+            if (hls) {
+                // Enumera las calidades reales de la lista maestra (360p a 1080p) con las cabeceras correctas.
+                val variants = runCatching { M3u8Helper.generateM3u8(name, file, response.url, headers = headers) }.getOrNull()
+                if (!variants.isNullOrEmpty()) {
+                    variants.forEach(callback)
+                    continue
+                }
+            }
+            callback(newExtractorLink(name, label.ifBlank { name }, file, if (hls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
                 this.referer = response.url
-                quality = Qualities.Unknown.value
-                headers = mapOf("User-Agent" to USER_AGENT)
+                quality = label.filter(Char::isDigit).takeIf { it.isNotBlank() }?.toIntOrNull() ?: Qualities.Unknown.value
+                this.headers = headers
             })
         }
     }
