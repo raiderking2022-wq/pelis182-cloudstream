@@ -20,7 +20,7 @@ jobs:
         with:
           packages: 'platform-tools'
           log-accepted-android-sdk-licenses: 'false'
-      - name: Prepare CloudStream build with Kotlin 2.4.0
+      - name: Prepare pinned CloudStream build
         shell: bash
         run: |
           git clone --depth=1 https://github.com/recloudstream/TestPlugins.git "$RUNNER_TEMP/cs-build"
@@ -31,8 +31,13 @@ jobs:
           from pathlib import Path
           import re
           p = Path('build.gradle.kts')
-          text, count = re.subn(r'org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^"]+', 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0', p.read_text())
-          assert count == 1, 'Kotlin dependency not found uniquely'
+          text = p.read_text()
+          for pattern, replacement in [
+              (r'org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^"]+', 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0'),
+              (r'com\.github\.recloudstream:gradle:[^"]+', 'com.github.recloudstream:gradle:32895aedb6'),
+          ]:
+              text, count = re.subn(pattern, replacement, text)
+              assert count == 1, 'Dependency not found uniquely: ' + pattern
           p.write_text(text)
           PY
           git rev-parse HEAD
