@@ -19,18 +19,40 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
-      - name: Prepare current CloudStream build configuration
+          log-accepted-android-sdk-licenses: 'false'
+      - name: Prepare CloudStream build with Kotlin 2.4.0
         shell: bash
         run: |
           git clone --depth=1 https://github.com/recloudstream/TestPlugins.git "$RUNNER_TEMP/cs-build"
           cp -R Pelis182 "$RUNNER_TEMP/cs-build/Pelis182"
           cd "$RUNNER_TEMP/cs-build"
           printf 'rootProject.name = "CloudstreamPlugins"\ninclude("Pelis182")\n' > settings.gradle.kts
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('build.gradle.kts')
+          text, count = re.subn(r'org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^"]+', 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0', p.read_text())
+          assert count == 1, 'Kotlin dependency not found uniquely'
+          p.write_text(text)
+          PY
           git rev-parse HEAD
           chmod +x gradlew
       - name: Compile cs3
         working-directory: ${{ runner.temp }}/cs-build
-        run: ./gradlew Pelis182:make --stacktrace --info --no-daemon
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew Pelis182:make --console=plain --no-daemon 2>&1 | tee "$RUNNER_TEMP/pelis182-build.log"
+      - name: Add build log to summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/pelis182-build.log" ]; then
+            echo '### Pelis182: últimas 100 líneas' >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 100 "$RUNNER_TEMP/pelis182-build.log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: Pelis182-cs3
