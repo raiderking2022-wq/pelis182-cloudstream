@@ -9,4 +9,5 @@ cloudstream {
 
 dependencies {
     add("implementation", "org.jspecify:jspecify:1.0.0")
+    add("compileOnly", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
 }
