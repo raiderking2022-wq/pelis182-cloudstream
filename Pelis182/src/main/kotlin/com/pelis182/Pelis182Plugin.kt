@@ -4,6 +4,7 @@ import android.content.Context
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.plugins.*
 import com.lagradost.cloudstream3.utils.*
+import java.net.URI
 import java.net.URLEncoder
 import org.jsoup.nodes.Element
 
@@ -25,30 +26,9 @@ class Pelis182 : MainAPI() {
     override val mainPage = mainPageOf(
         "$mainUrl/catalogo/" to "Películas",
         "$mainUrl/catalogo/?orden=tendencias" to "Tendencias",
-        "$mainUrl/category/accion/" to "Acción",
-        "$mainUrl/category/animacion/" to "Animación",
-        "$mainUrl/category/anime/" to "Anime",
-        "$mainUrl/category/aventura/" to "Aventura",
-        "$mainUrl/category/ciencia-ficcion/" to "Ciencia ficción",
-        "$mainUrl/category/comedia/" to "Comedia",
-        "$mainUrl/category/corto/" to "Corto",
-        "$mainUrl/category/deporte/" to "Deporte",
-        "$mainUrl/category/disney/" to "Disney",
-        "$mainUrl/category/disney-channel/" to "Disney Channel",
-        "$mainUrl/category/disney-nature/" to "Disney Nature",
-        "$mainUrl/category/documental/" to "Documental",
-        "$mainUrl/category/drama/" to "Drama",
-        "$mainUrl/category/fantasia/" to "Fantasía",
-        "$mainUrl/category/guerra/" to "Guerra",
-        "$mainUrl/category/horror/" to "Terror",
-        "$mainUrl/category/misterio-2/" to "Misterio",
-        "$mainUrl/category/musica/" to "Música",
-        "$mainUrl/category/musical/" to "Musical",
-        "$mainUrl/category/pixar/" to "Pixar",
-        "$mainUrl/category/romance/" to "Romance",
-        "$mainUrl/category/superheroes/" to "Superhéroes",
-        "$mainUrl/category/thriller/" to "Suspenso",
-        "$mainUrl/category/western/" to "Western"
+        *listOf("accion|Acción", "animacion|Animación", "anime|Anime", "aventura|Aventura", "ciencia-ficcion|Ciencia ficción", "comedia|Comedia", "corto|Corto", "deporte|Deporte", "disney|Disney", "disney-channel|Disney Channel", "disney-nature|Disney Nature", "documental|Documental", "drama|Drama", "fantasia|Fantasía", "guerra|Guerra", "horror|Terror", "misterio-2|Misterio", "musica|Música", "musical|Musical", "pixar|Pixar", "romance|Romance", "superheroes|Superhéroes", "thriller|Suspenso", "western|Western").map {
+            "$mainUrl/category/${it.substringBefore('|')}/" to it.substringAfter('|')
+        }.toTypedArray()
     )
     private fun Element.card(): SearchResponse? {
         val a = selectFirst("a[href]") ?: return null
@@ -58,8 +38,7 @@ class Pelis182 : MainAPI() {
         }
     }
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = (if (page == 1) request.data else nextPages["${request.data}|$page"])
-            ?: return newHomePageResponse(request.name, emptyList<SearchResponse>(), false)
+        val url = (if (page == 1) request.data else nextPages["${request.data}|$page"]) ?: return newHomePageResponse(request.name, emptyList<SearchResponse>(), false)
         val doc = app.get(url).document
         val items = doc.select("article.p182-card").mapNotNull { it.card() }.distinctBy { it.url }
         val next = doc.selectFirst("a.next.page-numbers, a[rel=next], .pagination a.next")?.attr("href")?.takeIf { it.isNotBlank() }?.let { fixUrl(it) }
@@ -67,8 +46,7 @@ class Pelis182 : MainAPI() {
         return newHomePageResponse(request.name, items, next != null && next != url)
     }
     override suspend fun search(query: String): List<SearchResponse> {
-        val q = URLEncoder.encode(query, "UTF-8")
-        var url: String? = "$mainUrl/?s=$q"
+        var url: String? = "$mainUrl/?s=${URLEncoder.encode(query, "UTF-8")}"
         val seen = mutableSetOf<String>()
         val results = mutableListOf<SearchResponse>()
         while (url != null && seen.add(url)) {
@@ -81,11 +59,7 @@ class Pelis182 : MainAPI() {
     override suspend fun load(url: String): LoadResponse {
         val doc = app.get(url).document
         val nodes = doc.select("script[type=application/ld+json]").mapNotNull { runCatching { mapper.readTree(it.data()) }.getOrNull() }.flatMap {
-            when {
-                it.has("@graph") -> it.get("@graph").toList()
-                it.isArray -> it.toList()
-                else -> listOf(it)
-            }
+            when { it.has("@graph") -> it.get("@graph").toList(); it.isArray -> it.toList(); else -> listOf(it) }
         }
         val movie = nodes.firstOrNull { it.get("@type")?.asText() == "Movie" }
         val title = movie?.get("name")?.asText() ?: doc.selectFirst("h1")?.text() ?: doc.title()
@@ -98,10 +72,33 @@ class Pelis182 : MainAPI() {
         }
     }
     override suspend fun loadLinks(data: String, isCasting: Boolean, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit): Boolean {
-        val doc = app.get(data).document
-        val frames = doc.select("#p182-theater iframe[src], #p182-theater iframe[data-src]").map { it.attr("src").ifBlank { it.attr("data-src") } }.filter { it.isNotBlank() }.map { fixUrl(it) }.distinct()
+        val response = app.get(data)
+        if (response.code !in 200..299) throw ErrorLoadingException("Pelis182: ficha HTTP ${response.code}")
+        val doc = response.document
+        val urls = linkedSetOf<String>()
+        for (el in doc.select("#p182-theater iframe, .theater iframe, iframe[src*=paulinito], [data-src*=paulinito], a[href*=paulinito]")) {
+            for (attr in listOf("data-src", "src", "href")) {
+                val raw = el.attr(attr).trim()
+                if (raw.isNotBlank() && !raw.startsWith("about:") && !raw.startsWith("javascript:")) {
+                    runCatching { URI(response.url).resolve(raw).toString() }.getOrNull()?.let { urls.add(it) }
+                }
+            }
+        }
+        val html = response.text.replace("\\/", "/")
+        Regex("""https?://(?:www\.)?paulinito\.com/player/[A-Za-z0-9_-]+/?""").findAll(html).forEach { urls.add(it.value) }
+        if (urls.isEmpty()) throw ErrorLoadingException("Pelis182: no se encontró el iframe del reproductor")
         var found = false
-        for (frame in frames) loadExtractor(frame, data, subtitleCallback) { found = true; callback(it) }
+        var lastError: String? = null
+        for (frame in urls) {
+            try {
+                val host = URI(frame).host.orEmpty().lowercase()
+                val receive: (ExtractorLink) -> Unit = { found = true; callback(it) }
+                if (host == "paulinito.com" || host == "www.paulinito.com") Paulinito().getUrl(frame, response.url, subtitleCallback, receive)
+                else loadExtractor(frame, response.url, subtitleCallback, receive)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { lastError = e.message }
+        }
+        if (!found) throw ErrorLoadingException("Pelis182: " + (lastError ?: "el reproductor no devolvió fuentes de video"))
         return found
     }
 }
@@ -111,12 +108,27 @@ class Paulinito : ExtractorApi() {
     override val mainUrl = "https://paulinito.com"
     override val requiresReferer = true
     override suspend fun getUrl(url: String, referer: String?, subtitleCallback: (SubtitleFile) -> Unit, callback: (ExtractorLink) -> Unit) {
-        val text = app.get(url, referer = referer ?: "https://pelis182.net/").text
-        val sources = Regex("""sources\s*:\s*(\[[\s\S]*?\])""").find(text)?.groupValues?.get(1) ?: return
-        val array = runCatching { mapper.readTree(sources) }.getOrNull() ?: return
-        for (source in array) {
-            val file = source.get("file")?.asText()?.takeIf { it.startsWith("https://") } ?: continue
-            if (file.substringBefore('?').endsWith(".m3u8", true)) M3u8Helper.generateM3u8(name, file, url).forEach(callback)
+        val response = app.get(url, referer = referer ?: "https://pelis182.net/")
+        if (response.code !in 200..299) throw ErrorLoadingException("Paulinito: HTTP ${response.code}")
+        val text = response.text.replace("\\/", "/")
+        val files = linkedSetOf<String>()
+        val sources = Regex("""sources\s*:\s*(\[[\s\S]*?\])""").find(text)?.groupValues?.get(1)
+        if (sources != null) {
+            runCatching { mapper.readTree(sources) }.getOrNull()?.forEach { source ->
+                source.get("file")?.asText()?.let { files.add(it) }
+            }
+        }
+        Regex("""https?://[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?""", RegexOption.IGNORE_CASE).findAll(text).forEach { files.add(it.value) }
+        if (files.isEmpty()) throw ErrorLoadingException("Paulinito: página recibida sin m3u8 ni mp4")
+        for (raw in files) {
+            val file = raw.replace("&amp;", "&")
+            if (!file.startsWith("https://") && !file.startsWith("http://")) continue
+            val hls = file.substringBefore('?').endsWith(".m3u8", true)
+            callback(newExtractorLink(name, name, file, if (hls) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO) {
+                this.referer = response.url
+                quality = Qualities.Unknown.value
+                headers = mapOf("User-Agent" to USER_AGENT)
+            })
         }
     }
 }
