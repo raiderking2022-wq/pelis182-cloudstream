@@ -20,27 +20,33 @@ jobs:
         with:
           packages: 'platform-tools'
           log-accepted-android-sdk-licenses: 'false'
-      - name: Prepare pinned CloudStream build
+      - name: Prepare source builds
         shell: bash
         run: |
           git clone --depth=1 https://github.com/recloudstream/TestPlugins.git "$RUNNER_TEMP/cs-build"
+          git init "$RUNNER_TEMP/cs-gradle"
+          git -C "$RUNNER_TEMP/cs-gradle" remote add origin https://github.com/recloudstream/gradle.git
+          git -C "$RUNNER_TEMP/cs-gradle" fetch --depth=1 origin 32895aedb6366f5075cb99bbd2e6ce0a7cac325d
+          git -C "$RUNNER_TEMP/cs-gradle" checkout --detach FETCH_HEAD
           cp -R Pelis182 "$RUNNER_TEMP/cs-build/Pelis182"
           cd "$RUNNER_TEMP/cs-build"
-          printf 'rootProject.name = "CloudstreamPlugins"\ninclude("Pelis182")\n' > settings.gradle.kts
+          cat > settings.gradle.kts <<'EOF'
+          rootProject.name = "CloudstreamPlugins"
+          include("Pelis182")
+          includeBuild("../cs-gradle") {
+              dependencySubstitution {
+                  substitute(module("com.github.recloudstream:gradle")).using(project(":"))
+              }
+          }
+          EOF
           python3 - <<'PY'
           from pathlib import Path
           import re
           p = Path('build.gradle.kts')
-          text = p.read_text()
-          for pattern, replacement in [
-              (r'org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^"]+', 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0'),
-              (r'com\.github\.recloudstream:gradle:[^"]+', 'com.github.recloudstream:gradle:32895aedb6'),
-          ]:
-              text, count = re.subn(pattern, replacement, text)
-              assert count == 1, 'Dependency not found uniquely: ' + pattern
+          text, count = re.subn(r'org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^"]+', 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.0', p.read_text())
+          assert count == 1
           p.write_text(text)
           PY
-          git rev-parse HEAD
           chmod +x gradlew
       - name: Compile cs3
         working-directory: ${{ runner.temp }}/cs-build
@@ -48,7 +54,7 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew Pelis182:make --console=plain --no-daemon 2>&1 | tee "$RUNNER_TEMP/pelis182-build.log"
-      - name: Add build log to summary
+      - name: Build summary
         if: always()
         shell: bash
         run: |
