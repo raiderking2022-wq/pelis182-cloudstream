@@ -19,19 +19,20 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
-      - name: Prepare template
+      - name: Prepare current CloudStream build configuration
+        shell: bash
         run: |
-          git clone --depth=1 https://github.com/cloudstream3/plugin-template.git "$RUNNER_TEMP/cs-template"
-          cp -R Pelis182 "$RUNNER_TEMP/cs-template/Pelis182"
-          cd "$RUNNER_TEMP/cs-template"
-          rm -rf ExampleProvider
-          sed -i 's/ExampleProvider/Pelis182/g' settings.gradle.kts
+          git clone --depth=1 https://github.com/recloudstream/TestPlugins.git "$RUNNER_TEMP/cs-build"
+          cp -R Pelis182 "$RUNNER_TEMP/cs-build/Pelis182"
+          cd "$RUNNER_TEMP/cs-build"
+          printf 'rootProject.name = "CloudstreamPlugins"\ninclude("Pelis182")\n' > settings.gradle.kts
+          git rev-parse HEAD
           chmod +x gradlew
       - name: Compile cs3
-        working-directory: ${{ runner.temp }}/cs-template
-        run: ./gradlew Pelis182:make --stacktrace
+        working-directory: ${{ runner.temp }}/cs-build
+        run: ./gradlew Pelis182:make --stacktrace --info --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: Pelis182-cs3
-          path: ${{ runner.temp }}/cs-template/Pelis182/build/**/*.cs3
+          path: ${{ runner.temp }}/cs-build/Pelis182/build/**/*.cs3
           if-no-files-found: error
